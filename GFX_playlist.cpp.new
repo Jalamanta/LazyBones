@@ -1,0 +1,940 @@
+#include <iostream>
+#include <math.h>
+#include "GFX_playlist.h"
+
+using namespace std;
+
+#include <FTGL/FTGLPixmapFont.h>
+
+#define COMIC_FONT "/usr/share/fonts/corefonts/comicbd.ttf"
+
+GLfloat light_position[4] = { 0.0, -0.5, 2.0, 0.0};
+
+
+GFX_playlist::GFX_playlist( BMT_texture_manager *texture_manager,
+                            GLuint screen_x, GLuint screen_y,
+                            GLuint width, GLuint height):
+  texture_manager_(texture_manager)
+{
+  set_screen_position( screen_x, screen_y);
+  set_screen_size( width, height);
+
+  init();
+}
+
+GFX_playlist::~GFX_playlist()
+{
+}
+
+void GFX_playlist::set_position( GLfloat x, GLfloat y, GLfloat z)
+{
+  original_x_pos_ = x;
+  original_y_pos_ = y;
+  original_z_pos_ = z;
+
+  GFX_object::set_position( x, y, z);
+}
+
+void GFX_playlist::reset_positions( void)
+{
+  GLfloat      x_position = 0.0;
+  GLfloat      y_rotation = 0.0;
+  GLfloat      z_position = 0.0;
+  unsigned int i;
+
+  set_position( original_x_pos_,
+                original_y_pos_,
+                original_z_pos_);
+
+  for (i=0; i < anchors_.size(); i ++)
+  {
+    if (i < media_nbr_left_)
+    {
+      x_position = -media_x_spacing_ * (media_nbr_left_ - i + 1) - media_x_offset_;
+      y_rotation = media_y_angle_;
+      z_position = 0.0;
+    }
+    else if (i == media_nbr_left_)
+    {
+      x_position = 0.0;
+      y_rotation = 0.0;
+      z_position = selected_media_z_offset_;
+      selected_media_ = i;
+    }
+    else 
+    {
+      x_position = media_x_spacing_ * (i - media_nbr_left_ + 1) + media_x_offset_;
+      y_rotation = -media_y_angle_;
+      z_position = 0.0;
+    }
+  
+    anchors_[i].set_position( x_position, 0.0f, z_position);
+    anchors_[i].set_rotation( 0.0f, y_rotation, 0.0f);
+  }
+}
+
+void GFX_playlist::init_anchors( void)
+{
+  unsigned int i;
+
+  aspect_ = (float)get_screen_width() / (float)get_screen_height();
+  media_nbr_left_ = (unsigned int)(3.75 * aspect_);
+  media_nbr_right_ = (unsigned int)(3.75 * aspect_);
+
+  number_anchors_ = media_nbr_left_ + 1 + media_nbr_right_;
+
+  GFX_anchor anchor_point;
+  anchor_point.set_media_index( 0);
+
+  // BM: Set up initial media anchor points (Visible Media).
+  for (i=0; i < number_anchors_; i ++)
+  {
+    anchors_.push_back( anchor_point);
+  }
+
+  reset_positions();
+}
+
+#if 0
+void GFX_playlist::resize( void)
+{
+  unsigned int i, difference;
+  unsigned int previous_number_of_anchors = number_anchors_;
+
+  aspect_ = (float)get_screen_width() / (float)get_screen_height();
+
+  media_nbr_left_ = (unsigned int)(3.75 * aspect_);
+  media_nbr_right_ = (unsigned int)(3.75 * aspect_);
+  
+  number_anchors_ = media_nbr_left_ + 1 + media_nbr_right_;
+
+  difference = abs((int)(previous_number_of_anchors - number_anchors_));
+
+  if (difference != 0)
+  {
+    cout << difference << endl;
+    if (number_anchors_ > previous_number_of_anchors)
+    {
+      GFX_anchor anchor_point;
+      anchor_point.set_media_index( 0);
+      
+      for (i=0; i < difference; i++)
+      {
+        anchors_.push_back( anchor_point);
+      }
+      for (i=0; i < difference/2; i++)
+      {
+        move_textures_right();
+      }
+    }
+    else if (previous_number_of_anchors > number_anchors_)
+    {
+      for (i=0; i < difference; i++)
+      {
+        anchors_.pop_back();
+      }
+      for (i=0; i < difference/2; i++)
+      {
+        move_textures_left();
+      }
+    }
+
+    reset_positions();
+  }
+}
+#endif
+
+
+void GFX_playlist::init( void)
+{
+  selected_media_ = 0;
+  selected_media_z_offset_ = 0.15;
+  media_y_angle_ = 70.0;
+  media_x_spacing_ = 0.03;
+  media_x_offset_ = 0.08;
+  scale_ = 1.0;
+
+  current_animation_ = ANIM_NONE;
+
+  comic_font_small_ = new FTGLPixmapFont( COMIC_FONT);
+  comic_font_small_->FaceSize( 18);
+  comic_font_small_->UseDisplayList( true);
+
+  comic_font_large_ = new FTGLPolygonFont( COMIC_FONT);
+  comic_font_large_->FaceSize( 34);
+  comic_font_large_->UseDisplayList( true);
+
+  init_anchors();
+}
+
+void GFX_playlist::add_playlist( LBMT_MediaBag& playlist)
+{
+}
+
+void GFX_playlist::add_album( LBMT_Album& album)
+{
+  int media_index;
+  int texture_id;
+
+  playlist_->add_album( album);
+  
+  if (playlist_->size() < anchors_.size())
+  {
+    texture_id = texture_manager_->add( album.get_coverart());
+
+    media_index = playlist_->size();
+
+    anchors_[media_index].set_texture( texture_id);
+    anchors_[media_index].set_artist( album.get_artist_name());
+    anchors_[media_index].set_album( album.get_title());
+    anchors_[media_index].set_media_index( media_index);
+  }
+}
+
+void GFX_playlist::remove_album( LBMT_Album& album)
+{
+  playlist_->remove_album( album);
+}
+
+void GFX_playlist::add_song( LBMT_Song& song)
+{
+  playlist_->add_song( song);
+}
+
+void GFX_playlist::remove_song( LBMT_Song& song)
+{
+  playlist_->remove_song( song);
+}
+
+void GFX_playlist::set_selected_media( int media_id)
+{
+  selected_media_ = media_id;
+}
+
+GFX_media& GFX_playlist::get_selected_media( void)
+{
+  return anchors_[selected_media_];
+}
+
+void GFX_playlist::set_scale( float value)
+{
+  if (value < -1.0)
+  {
+    scale_ = -1.0;
+  }
+  else if (value > 1.0)
+  {
+    scale_ = 1.0;
+  }
+  else
+  {
+    scale_ = value;
+  }
+}
+
+float GFX_playlist::get_scale( void)
+{
+  return scale_;
+}
+
+void GFX_playlist::set_aspect( float value)
+{
+  aspect_ = value;
+}
+
+float GFX_playlist::get_aspect( void)
+{
+  return aspect_;
+}
+
+void GFX_playlist::animate_all_media_left( int millisecs)
+{
+  unsigned int i, j;
+  int      media_index;
+  T_Position destination_position;
+  T_Rotation destination_rotation;
+
+  cout << "selected_media_: " << selected_media_ << endl;
+
+  if (get_animate() == false)
+  {
+    media_index = anchors_[selected_media_+1].get_media_index();
+    if (media_index != -1)
+    {
+      i=0;
+      while( i <= selected_media_ && i < anchors_.size())
+      {
+        GFX_anim_node anim_node;
+
+        j = selected_media_ - i;
+
+        anim_node.set_origin_position( anchors_[i].get_position());
+        anim_node.set_origin_rotation( anchors_[i].get_rotation());
+
+        destination_position.x = (-media_x_spacing_ * (j+2)) - media_x_offset_;
+        destination_position.y = 0.0;
+        destination_position.z = 0.0;
+        
+        destination_rotation.x = 0.0;
+        destination_rotation.y = media_y_angle_;
+        destination_rotation.z = 0.0;
+        
+        anim_node.set_destination_position( destination_position);
+        anim_node.set_destination_rotation( destination_rotation);
+        anim_node.set_time( millisecs);
+
+        anchors_[i].add_node( anim_node);
+        anchors_[i].set_animate( true);
+        i++;
+      }
+      
+      if (i < anchors_.size())
+      {
+        GFX_anim_node anim_node;
+
+        anim_node.set_origin_position( anchors_[i].get_position());
+        anim_node.set_origin_rotation( anchors_[i].get_rotation());
+        
+        destination_position.x = 0.0;
+        destination_position.y = 0.0;
+        destination_position.z = selected_media_z_offset_;
+        
+        destination_rotation.x = 0.0;
+        destination_rotation.y = 0.0;
+        destination_rotation.z = 0.0;
+        
+        anim_node.set_destination_position( destination_position);
+        anim_node.set_destination_rotation( destination_rotation);
+        anim_node.set_time( millisecs);
+
+        anchors_[i].add_node( anim_node);
+        anchors_[i].set_animate( true);
+        i++;
+      }
+      
+      j = 0;
+      while( i < anchors_.size())
+      {
+        GFX_anim_node anim_node;
+
+        anim_node.set_origin_position( anchors_[i].get_position());
+        anim_node.set_origin_rotation( anchors_[i].get_rotation());
+        
+        destination_position.x = (media_x_spacing_ * (j+2)) + media_x_offset_;
+        destination_position.y = 0.0;
+        destination_position.z = 0.0;
+        
+        destination_rotation.x = 0.0;
+        destination_rotation.y = -media_y_angle_;
+        destination_rotation.z = 0.0;
+        
+        anim_node.set_destination_position( destination_position);
+        anim_node.set_destination_rotation( destination_rotation);
+        anim_node.set_time( millisecs);
+
+        anchors_[i].add_node( anim_node);
+        anchors_[i].set_animate( true);
+        i++;
+        j++;
+      }
+      current_animation_ = ANIM_LEFT;
+    }
+  }
+}
+
+void GFX_playlist::animate_all_media_right( int millisecs)
+{
+  unsigned int i, j;
+  int media_index;
+  T_Position destination_position;
+  T_Rotation destination_rotation;
+
+  if (get_animate() == false)
+  {
+    media_index = anchors_[selected_media_-1].get_media_index();
+    if (media_index  != -1)
+    {
+      i=0;
+      while( i < (selected_media_ -1) && i < anchors_.size())
+      {
+        GFX_anim_node anim_node;
+
+        j = selected_media_ - i;
+
+        anim_node.set_origin_position( anchors_[i].get_position());
+        anim_node.set_origin_rotation( anchors_[i].get_rotation());
+        
+        destination_position.x = (-media_x_spacing_ * (j)) - media_x_offset_;
+        destination_position.y = 0.0;
+        destination_position.z = 0.0;
+        
+        destination_rotation.x = 0.0;
+        destination_rotation.y = media_y_angle_;
+        destination_rotation.z = 0.0;
+        
+        anim_node.set_destination_position( destination_position);
+        anim_node.set_destination_rotation( destination_rotation);
+        anim_node.set_time( millisecs);
+
+        anchors_[i].add_node( anim_node);
+        anchors_[i].set_animate( true);
+
+        i++;
+      }
+      
+      if (i < anchors_.size())
+      {
+        GFX_anim_node anim_node;
+
+        anim_node.set_origin_position( anchors_[i].get_position());
+        anim_node.set_origin_rotation( anchors_[i].get_rotation());
+        
+        destination_position.x = 0.0;
+        destination_position.y = 0.0;
+        destination_position.z = selected_media_z_offset_;
+        
+        destination_rotation.x = 0.0;
+        destination_rotation.y = 0.0;
+        destination_rotation.z = 0.0;
+        
+        anim_node.set_destination_position( destination_position);
+        anim_node.set_destination_rotation( destination_rotation);
+        anim_node.set_time( millisecs);
+
+        anchors_[i].add_node( anim_node);
+        anchors_[i].set_animate( true);
+        
+        i++;
+      }
+      
+      j = 0;
+      while( i < anchors_.size())
+      {
+        GFX_anim_node anim_node;
+
+        anim_node.set_origin_position( anchors_[i].get_position());
+        anim_node.set_origin_rotation( anchors_[i].get_rotation());
+        
+        destination_position.x = (media_x_spacing_ * (j + 2)) + media_x_offset_;
+        destination_position.y = 0.0;
+        destination_position.z = 0.0;
+        
+        destination_rotation.x = 0.0;
+        destination_rotation.y = -media_y_angle_;
+        destination_rotation.z = 0.0;
+        
+        anim_node.set_destination_position( destination_position);
+        anim_node.set_destination_rotation( destination_rotation);
+        anim_node.set_time( millisecs);
+
+        anchors_[i].add_node( anim_node);
+        anchors_[i].set_animate( true);
+
+        i++;
+        j++;
+      }
+      current_animation_ = ANIM_RIGHT;
+    }
+  }
+}
+
+void GFX_playlist::resize( void)
+{
+#if 0
+  unsigned int i, difference;
+  unsigned int previous_number_of_anchors = number_anchors_;
+  GLuint texture_id;
+  int media_index;
+
+  aspect_ = (float)get_screen_width() / (float)get_screen_height();
+
+  media_nbr_left_ = (unsigned int)(3.75 * aspect_);
+  media_nbr_right_ = (unsigned int)(3.75 * aspect_);
+  
+  number_anchors_ = media_nbr_left_ + 1 + media_nbr_right_;
+
+  difference = abs((int)(previous_number_of_anchors - number_anchors_));
+
+  if (difference != 0)
+  {
+    media_index = anchors_[selected_media_].get_media_index();
+
+    cout << difference << endl;
+
+    if (number_anchors_ > previous_number_of_anchors)
+    {
+      GFX_anchor anchor_point;
+      anchor_point.set_media_index( 0);
+      
+      for (i=0; i < difference; i++)
+      {
+        anchors_.push_back( anchor_point);
+      }
+      selected_media_ += difference/2;
+    }
+    else if (previous_number_of_anchors > number_anchors_)
+    {
+      for (i=0; i < difference; i++)
+      {
+        anchors_.pop_back();
+      }
+      selected_media_ -= difference/2;
+    }
+
+    if (anchors_.size() > 0)
+    {
+      
+      texture_id = texture_manager_->add( playlist_[media_index].filename, /* Attempt Texture Reuse = */ true);
+      anchors_[selected_media_].set_texture( texture_id);
+      anchors_[selected_media_].set_artist( playlist_[media_index].artist);
+      anchors_[selected_media_].set_album( playlist_[media_index].album);
+      anchors_[selected_media_].set_media_index( media_index);
+      
+      for (i=selected_media_-1; i <= 0; i--)
+      {
+        texture_id = texture_manager_->add( playlist_[media_index].filename, /* Attempt Texture Reuse = */ true);
+        anchors_[i].set_texture( texture_id);
+        anchors_[i].set_artist( playlist_[media_index].artist);
+        anchors_[i].set_album( playlist_[media_index].album);
+        anchors_[i].set_media_index( media_index);
+        media_index--;
+        if (media_index < 0)
+        {
+          break;
+        }
+      }
+      
+      for (i=selected_media_+1; i <= anchors_.size(); i++)
+      {
+        texture_id = texture_manager_->add( playlist_[media_index].filename, /* Attempt Texture Reuse = */ true);
+        anchors_[i].set_texture( texture_id);
+        anchors_[i].set_artist( playlist_[media_index].artist);
+        anchors_[i].set_album( playlist_[media_index].album);
+        anchors_[i].set_media_index( media_index);
+        media_index++;
+        if (media_index > playlist_.size())
+        {
+          break;
+        }
+      }
+    }
+
+//    reset_positions();
+  }
+#endif
+}
+
+void GFX_playlist::move_textures_left( void)
+{
+  GLuint texture_id;
+  unsigned int i;
+  int media_index;
+
+  if (anchors_.size() > 0)
+  {
+    texture_id = anchors_[0].get_texture();
+    texture_manager_->set_texture_unused( texture_id);
+  }
+
+  for(i = 0; i < number_anchors_ - 1; i++)
+  {
+    anchors_[i].set_texture( anchors_[i+1].get_texture()); // Should Use A Copy Constructor
+    anchors_[i].set_artist( anchors_[i+1].get_artist());
+    anchors_[i].set_album( anchors_[i+1].get_album());
+    anchors_[i].set_media_index( anchors_[i+1].get_media_index());
+  }
+
+  media_index = anchors_[number_anchors_-1].get_media_index();
+
+  if (media_index != -1)
+  {
+    media_index++;
+  }
+
+  if (media_index != -1 && media_index < (int)playlist_->size())
+  {
+    LBMT_Media *media;
+    playlist_->point_at_next_media();
+
+    media = playlist_->get_current_media();
+    if (media != 0)
+    {
+    
+      texture_id = texture_manager_->add( media->get_coverart(), /* Attempt Texture Reuse = */ true);
+      anchors_[number_anchors_-1].set_texture( texture_id);
+      anchors_[number_anchors_-1].set_media_index( media_index);
+      anchors_[number_anchors_-1].set_artist( media->get_artist_name());
+      anchors_[number_anchors_-1].set_album( media->get_title());
+    }
+    else
+    {
+      std::cout << "ERROR move_textures_left" << endl;
+    }
+  }
+  else
+  {
+    anchors_[number_anchors_-1].set_texture( 0);
+    anchors_[number_anchors_-1].set_media_index( -1);
+  }
+}
+
+void GFX_playlist::move_textures_right( void)
+{
+  GLuint texture_id = 0;
+  int i, media_index;
+
+  if (number_anchors_ -1 > 0)
+  {
+    texture_id = anchors_[number_anchors_-1].get_texture();
+    texture_manager_->set_texture_unused( texture_id);
+  }
+
+  for(i = number_anchors_ -1; i > 0; i--)
+  {
+    anchors_[i].set_texture( anchors_[i-1].get_texture()); // Should Use A Copy Constructor
+    anchors_[i].set_artist( anchors_[i-1].get_artist());
+    anchors_[i].set_album( anchors_[i-1].get_album());
+    anchors_[i].set_media_index( anchors_[i-1].get_media_index());
+  }
+
+  media_index = anchors_[0].get_media_index();
+  media_index--;
+
+  if ( media_index >= 0)
+  {
+    texture_id = texture_manager_->add( playlist_[media_index].filename, /* Attempt Texture Reuse = */ true);
+    anchors_[0].set_texture( texture_id);
+    anchors_[0].set_media_index( media_index);
+    anchors_[0].set_artist( playlist_[media_index].artist);
+    anchors_[0].set_album( playlist_[media_index].album);
+  }
+  else
+  {
+//    texture_id = anchors_[0].get_texture();
+//    texture_manager_->set_texture_unused( texture_id);
+    anchors_[0].set_texture( 0);
+    anchors_[0].set_media_index( -1);
+  }
+}
+
+void GFX_playlist::spin_selected_media( void)
+{
+  T_Rotation    destination_rotation;
+  T_Position    destination_position;
+  GFX_anim_node anim_node;
+
+  anim_node.set_origin_position( anchors_[selected_media_].get_position());
+  anim_node.set_origin_rotation( anchors_[selected_media_].get_rotation());
+
+  destination_rotation.x = 0.0;
+  destination_rotation.y = 360.0;
+  destination_rotation.z = 0.0;
+  
+  anim_node.set_destination_position( anchors_[selected_media_].get_position());
+  anim_node.set_destination_rotation( destination_rotation);
+  anim_node.set_time( 600);
+
+  anchors_[selected_media_].add_node( anim_node);
+
+  anim_node.clear();
+
+  anim_node.set_origin_position( anchors_[selected_media_].get_position());
+  anim_node.set_origin_rotation( anchors_[selected_media_].get_rotation());
+
+  destination_position.x = 0.0;
+  destination_position.y = -0.16;
+  destination_position.z = 0.1;
+
+  anim_node.set_destination_position( destination_position);
+  anim_node.set_destination_rotation( anchors_[selected_media_].get_rotation());
+  anim_node.set_time( 600);
+
+  anchors_[selected_media_].add_node( anim_node);
+  anchors_[selected_media_].set_animate( true);
+}
+  
+bool GFX_playlist::animate( int millisecs)
+{
+  unsigned int i;
+  bool         animating = false;
+  bool         was_animating = false;
+
+  was_animating = get_animate();
+  animating = GFX_object::animate( millisecs);
+
+  for (i=0 ; i < anchors_.size(); i++)
+  {
+    was_animating |= anchors_[i].get_animate();
+    animating |= anchors_[i].animate( millisecs);
+  }
+  
+  if (was_animating && animating == false)
+  {
+    reset_positions();
+
+    switch( current_animation_)
+    {
+      case ANIM_LEFT:
+        move_textures_left();
+        break;
+
+      case ANIM_RIGHT:
+        move_textures_right();
+        break;
+
+      case ANIM_UP:
+        break;
+      case ANIM_DOWN:
+        break;
+      case ANIM_NONE:
+        break;
+      default:
+        break;
+    }
+    current_animation_ = ANIM_NONE;
+  }
+
+  return animating;
+}
+
+bool GFX_playlist::get_animate( void)
+{
+  bool animating = false;
+  unsigned int i;
+
+  animating = GFX_object::get_animate();
+
+  for (i=0 ; i < anchors_.size(); i++)
+  {
+    animating |= anchors_[i].get_animate();
+  }
+
+  return animating;
+}
+
+void GFX_playlist::draw_selected_media( void)
+{
+  glPushMatrix();
+  {
+    glTranslatef( position_.x, position_.y, position_.z);
+    glRotatef( rotation_.x, 1.0, 0.0, 0.0);
+    glRotatef( rotation_.y, 0.0, 1.0, 0.0);
+    glRotatef( rotation_.z, 0.0, 0.0, 1.0);
+  
+    anchors_[media_nbr_left_].draw();
+  }
+  glPopMatrix();
+}
+
+
+void GFX_playlist::draw_selected_media_title( void)
+{
+  float llx, lly, llz, urx, ury, urz;
+
+  string artist;
+  string album;
+  char album_display[256];
+
+  glMatrixMode( GL_PROJECTION);
+  glLoadIdentity();
+  glOrtho( 0, width_, height_, 0, -1.0f, 1.0f);
+  glMatrixMode( GL_MODELVIEW);
+  glLoadIdentity();
+
+  glDisable( GL_LIGHTING);
+  glColor3f( 0.7, 0.7, 0.7);
+
+  anchors_[selected_media_];
+
+  artist = anchors_[selected_media_].get_artist();
+  album = anchors_[selected_media_].get_album();
+  sprintf( album_display, "\"%s\"", album.c_str());
+  
+  comic_font_small_->BBox( artist.c_str(), llx, lly, llz, urx, ury, urz);
+  glRasterPos2i( (int)(get_screen_width() - (urx -llx)) / 2, 25);
+  comic_font_small_->Render( artist.c_str());
+
+  comic_font_small_->BBox( album_display, llx, lly, llz, urx, ury, urz);
+  glRasterPos2i( (int)(get_screen_width() - (urx -llx)) / 2, 50);
+  comic_font_small_->Render( album_display);
+}
+
+void GFX_playlist::draw_floor( void) 
+{
+  glBegin(GL_QUADS);
+  {
+    glNormal3f( 0.0, 1.0, 0.0);
+    glTexCoord2f( 0.0f, 1.0f); glVertex3f( -2.0, 0.0, 12.0);
+    glTexCoord2f( 0.0f, 0.0f); glVertex3f( -2.0, 0.0,-2.0);
+    glTexCoord2f( 1.0f, 0.0f); glVertex3f( 2.0, 0.0,-2.0);
+    glTexCoord2f( 1.0f, 1.0f); glVertex3f( 2.0, 0.0, 12.0);
+  }
+  glEnd();
+}
+
+
+void GFX_playlist::draw_media( bool draw_selected)
+{
+  unsigned int i;
+
+  glPushMatrix();
+  {
+  
+    for (i=0; i < media_nbr_left_; i++)
+    {
+      if (anchors_[i].get_texture() > 0)
+      {
+        anchors_[i].draw();
+      }
+    }
+    
+    if (draw_selected)
+    {
+      anchors_[media_nbr_left_].draw();
+    }
+
+    for (i=media_nbr_left_+1; i < number_anchors_; i++)
+    {
+      if (anchors_[i].get_texture() > 0)
+      {
+        anchors_[i].draw();
+      }
+    }
+  }
+  glPopMatrix();
+}
+
+void GFX_playlist::draw( bool draw_selected_title)
+{
+  double equation[] = { 0.0f, -1.0f, 0.0f, 0.0f};
+  
+  glViewport( get_screen_x(), get_screen_y(), get_screen_width(), get_screen_height());
+
+  glDisable( GL_LIGHTING);
+  glClear( GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+
+  if (draw_selected_title &&
+      get_animate() == false)
+  {
+    draw_selected_media_title();
+  }
+
+  glMatrixMode( GL_PROJECTION);
+  glLoadIdentity();
+  gluPerspective(45.0f, (GLfloat)get_screen_width() / (GLfloat)get_screen_height(), 0.1f, 20.0f);
+  glMatrixMode( GL_MODELVIEW);
+  glLoadIdentity();
+
+  glEnable( GL_LIGHTING);
+
+  glTranslatef( position_.x, position_.y, position_.z);
+  glRotatef( rotation_.x, 1.0, 0.0, 0.0);
+  glRotatef( rotation_.y, 0.0, 1.0, 0.0);
+  glRotatef( rotation_.z, 0.0, 0.0, 1.0);
+
+  glScalef( scale_, scale_, scale_);
+
+  glPushMatrix();
+  {
+    glTranslatef( 0.0f, -0.06f, 0.0);
+    glColorMask( 0, 0, 0, 0);
+    glEnable( GL_STENCIL_TEST);
+    glStencilFunc( GL_ALWAYS, 1, 1);
+    glStencilOp( GL_KEEP, GL_KEEP, GL_REPLACE);
+    glDisable( GL_DEPTH_TEST);
+
+    draw_floor();
+
+    glEnable( GL_DEPTH_TEST);
+    glColorMask( 1, 1, 1, 1);
+
+    glStencilFunc( GL_EQUAL, 1, 1);
+    glStencilOp( GL_KEEP, GL_KEEP, GL_KEEP);
+    glClipPlane( GL_CLIP_PLANE0, equation);
+    glEnable( GL_CLIP_PLANE0);
+
+    glPushMatrix();
+    {
+      glScalef( 1.0, -1.0, 1.0);
+      glTranslatef( 0.0f, 0.08f, 0.0);
+      draw_media( true);
+    }
+    glPopMatrix();
+
+    glDisable( GL_CLIP_PLANE0);
+    glDisable( GL_STENCIL_TEST);
+    glEnable( GL_BLEND);
+    glDisable( GL_LIGHTING);
+
+    glColor4f( 0.0f, 0.0f, 0.0f, 0.8);
+    glBlendFunc( GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+    draw_floor();
+
+    glEnable( GL_LIGHTING);
+    glDisable( GL_BLEND);
+  }
+  glPopMatrix();
+
+  glTranslatef( 0.0f, 0.015f, 0.0);
+  draw_media( true);
+}
+
+void GFX_playlist::draw( void)
+{
+  draw( true);
+}
+
+void GFX_playlist::animate_playlist_up( int millisecs)
+{
+  T_Position     origin_position;
+  T_Position     destination_position;
+  GFX_anim_node  anim_node;
+
+  origin_position.x = original_x_pos_;
+  origin_position.y = original_y_pos_ - 0.16;
+  origin_position.z = original_z_pos_;
+
+  anim_node.set_origin_position( origin_position);
+
+  destination_position.x = original_x_pos_;
+  destination_position.y = original_y_pos_;
+  destination_position.z = original_z_pos_;
+        
+  anim_node.set_destination_position( destination_position);
+  anim_node.set_time( millisecs);
+
+  add_node( anim_node);
+  set_animate( true);
+}
+
+void GFX_playlist::animate_playlist_down( int millisecs)
+{
+  T_Position     origin_position;
+  T_Position     destination_position;
+  GFX_anim_node  anim_node;
+
+  origin_position.x = original_x_pos_;
+  origin_position.y = original_y_pos_;
+  origin_position.z = original_z_pos_;
+
+  anim_node.set_origin_position( origin_position);
+        
+  destination_position.x = original_x_pos_;
+  destination_position.y = original_y_pos_ - 0.16;
+  destination_position.z = original_z_pos_;
+        
+  anim_node.set_destination_position( destination_position);
+  anim_node.set_time( millisecs);
+
+  add_node( anim_node);
+  set_animate( true);
+}
+
+
+void GFX_playlist::stats( void)
+{
+  // cout << texture_manager_->get_nbr_textures() << endl;
+  cout << number_anchors_ << endl;
+}
+
